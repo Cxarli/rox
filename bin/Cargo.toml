@@ -1,0 +1,8 @@
+[package]
+name = "rox_main"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+rox = { version = "0.1.0", path = "../"}
+clap = "2.33.0"
