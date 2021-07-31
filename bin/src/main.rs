@@ -23,24 +23,38 @@ fn main() {
             .takes_value(true))
         .get_matches();
 
-    let content = if let Some(filename) = args.value_of("file") {
-        fs::read_to_string(filename).expect("")
-    } else if let Some(code) = args.value_of("code") {
-        code.to_string()
-    } else {
-        panic!("At least one input type (file/code) must be specified.");
+    let content = {
+        if let Some(filename) = args.value_of("file") {
+            fs::read_to_string(filename).expect("")
+        } else if let Some(code) = args.value_of("code") {
+            code.to_string()
+        } else {
+            panic!("At least one input type (file/code) must be specified.");
+        }
     };
 
     let tokens = rox::lexer::lex(&content);
-    // println!("{:?}", tokens);
 
-    let ast = rox::parser::main(&tokens);
+    /*
+    for token in &tokens {
+        println!("{}", token);
+    }
+    */
+
+    let ast = rox::parser::parse(&tokens);
     // println!("{:?}", ast);
 
-    use eval::Run;
-    let mut scope = eval::Scope::new();
-    for stmt in ast.expect("oopsie") {
-        println!("## {}", stmt);
-        stmt.run(&mut scope);
+    if let Ok(ast) = ast {
+        use eval::Run;
+        let mut scope = eval::Scope::new();
+
+        for stmt in ast {
+            println!("## {}", stmt);
+            stmt.run(&mut scope);
+        }
+    } else {
+        for err in ast.unwrap_err() {
+            println!("oops: {:?}", err);
+        }
     }
 }

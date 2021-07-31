@@ -1,7 +1,7 @@
 use logos::Logos;
 
-#[derive(Logos, Debug, PartialEq)]
-pub enum Token<'a> {
+#[derive(Logos, Debug, PartialEq, Clone)]
+pub enum Token {
     // Arithmetic operators
     #[token("+")]
     Plus,
@@ -99,12 +99,28 @@ pub enum Token<'a> {
     False,
     #[token("nil")]
     Nil,
-    #[regex(r#"[a-zA-Z_][a-zA-Z0-9_]*"#)]
-    Identifier(&'a str),
-    #[regex(r#"[0-9]+(\.[0-9]+)?"#)]
-    Number(&'a str),
-    #[regex(r#""([^"\\]|\\[\\"nt])*""#)]
-    String(&'a str),
+
+    #[regex(
+        r#"[a-zA-Z_][a-zA-Z0-9_]*"#,
+        |lex| lex.slice().to_string()
+    )]
+    Identifier(String),
+
+    #[regex(
+        r#""([^"\\]|\\[\\"nt])*""#,
+        |lex| {
+            let s = lex.slice();
+            // TODO: proper escaping
+            s[1..s.len() - 1].to_string()
+        }
+    )]
+    String(String),
+
+    #[regex(
+        r#"[0-9]+(\.[0-9]+)?"#,
+        |lex| lex.slice().parse()
+    )]
+    Number(f64),
 
     // Internal tokens
     #[error]
@@ -115,18 +131,38 @@ pub enum Token<'a> {
     Whitespace,
 }
 
-pub type SpannedToken<'a> = (std::ops::Range<usize>, Token<'a>);
+pub type Span = std::ops::Range<usize>;
+
+// pub type SpannedToken = (Span, Token);
+
+#[derive(Debug, Clone)]
+pub struct SpannedToken {
+    pub span: Span,
+    pub token: Token,
+}
+
+impl std::fmt::Display for SpannedToken {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            fmt,
+            "[{} {:?}]",
+            self.span.start,
+            // self.span.end,
+            self.token
+        )
+    }
+}
+
 
 pub fn lex(source: &str) -> Vec<SpannedToken> {
     let mut lexer = Token::lexer(source);
     let mut tokens = vec!{};
 
-    loop {
-        if let Some(token) = lexer.next() {
-            tokens.push((lexer.span(), token));
-        } else {
-            break;
-        }
+    while let Some(token) = lexer.next() {
+        tokens.push(SpannedToken {
+            span: lexer.span(),
+            token
+        });
     }
 
     tokens

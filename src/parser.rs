@@ -1,51 +1,53 @@
 use super::lexer::{Token, SpannedToken};
 
-pub type Expr<'a> = Box<Expression<'a>>;
+pub type Expr = Box<Expression>;
 
 #[derive(Debug)]
-pub enum Statement<'a> {
-    Print(Expression<'a>),
+pub enum Statement {
+    Print(Expression),
+    Expression(Expression),
 }
 
 #[derive(Debug)]
-pub enum Expression<'a> {
+pub enum Expression {
     // Literals
     Number(f64),
-    String(&'a str),
-    Identifier(&'a str),
+    String(String),
+    Identifier(String),
     True,
     False,
     Nil,
 
     // Unary
-    Negative(Expr<'a>),
-    Negate(Expr<'a>),
+    Negative(Expr),
+    Negate(Expr),
 
     // Arithmetic
-    Add(Expr<'a>, Expr<'a>),
-    Subtract(Expr<'a>, Expr<'a>),
-    Multiply(Expr<'a>, Expr<'a>),
-    Divide(Expr<'a>, Expr<'a>),
+    Add(Expr, Expr),
+    Subtract(Expr, Expr),
+    Multiply(Expr, Expr),
+    Divide(Expr, Expr),
 
     // Compare
-    Equal(Expr<'a>, Expr<'a>),
-    NotEqual(Expr<'a>, Expr<'a>),
-    Less(Expr<'a>, Expr<'a>),
-    LessEqual(Expr<'a>, Expr<'a>),
-    Greater(Expr<'a>, Expr<'a>),
-    GreaterEqual(Expr<'a>, Expr<'a>),
+    Equal(Expr, Expr),
+    NotEqual(Expr, Expr),
+    Less(Expr, Expr),
+    LessEqual(Expr, Expr),
+    Greater(Expr, Expr),
+    GreaterEqual(Expr, Expr),
 }
 
-impl<'a> std::fmt::Display for Statement<'a> {
+impl std::fmt::Display for Statement {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         use Statement::*;
         match self {
             Print(e) => write!(fmt, "print {};", e),
+            Expression(e) => write!(fmt, "{};", e),
         }
     }
 }
 
-impl<'a> std::fmt::Display for Expression<'a> {
+impl std::fmt::Display for Expression {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         use Expression::*;
         match self {
@@ -56,20 +58,20 @@ impl<'a> std::fmt::Display for Expression<'a> {
             False => write!(fmt, "false"),
             Nil => write!(fmt, "nil"),
 
-            Negative(e) => write!(fmt, "-({})", e),
-            Negate(e) => write!(fmt, "!({})", e),
+            Negative(e) => write!(fmt, "-{}", e),
+            Negate(e) => write!(fmt, "!{}", e),
 
-            Add(a, b) => write!(fmt, "({}) + ({})", a, b),
-            Subtract(a, b) => write!(fmt, "({}) - ({})", a, b),
-            Multiply(a, b) => write!(fmt, "({}) * ({})", a, b),
-            Divide(a, b) => write!(fmt, "({}) / ({})", a, b),
+            Add(a, b) => write!(fmt, "({} + {})", a, b),
+            Subtract(a, b) => write!(fmt, "({} - {})", a, b),
+            Multiply(a, b) => write!(fmt, "({} * {})", a, b),
+            Divide(a, b) => write!(fmt, "({} / {})", a, b),
 
-            Equal(a, b) => write!(fmt, "({}) == ({})", a, b),
-            NotEqual(a, b) => write!(fmt, "({}) != ({})", a, b),
-            Less(a, b) => write!(fmt, "({}) < ({})", a, b),
-            LessEqual(a, b) => write!(fmt, "({}) <= ({})", a, b),
-            Greater(a, b) => write!(fmt, "({}) > ({})", a, b),
-            GreaterEqual(a, b) => write!(fmt, "({}) >= ({})", a, b),
+            Equal(a, b) => write!(fmt, "({} == {})", a, b),
+            NotEqual(a, b) => write!(fmt, "({} != {})", a, b),
+            Less(a, b) => write!(fmt, "({} < {})", a, b),
+            LessEqual(a, b) => write!(fmt, "({} <= {})", a, b),
+            Greater(a, b) => write!(fmt, "({} > {})", a, b),
+            GreaterEqual(a, b) => write!(fmt, "({} >= {})", a, b),
         }
     }
 }
@@ -80,65 +82,73 @@ pub enum Error {
     Failure(String),
 }
 
-pub type Tokens<'a> = &'a [SpannedToken<'a>];
-pub type SingleExpr<'a> = std::result::Result<Expression<'a>, Error>;
-pub type SingleStmt<'a> = std::result::Result<Statement<'a>, Error>;
-pub type YieldExpr<'a> = std::result::Result<(Tokens<'a>, Expression<'a>), Error>;
-pub type YieldStmt<'a> = std::result::Result<(Tokens<'a>, Statement<'a>), Error>;
-
-
-fn parse_num(s: &str) -> SingleExpr {
-    s.parse::<f64>()
-        .map(Expression::Number)
-        .map_err(|e| Error::Failure(e.to_string()))
+#[derive(Clone, Debug)]
+pub struct TokenWalker<'a> {
+    pub tokens: &'a [SpannedToken],
+    index: usize,
 }
 
-fn parse_str(s: &str) -> SingleExpr {
-    // TODO: proper escaping
-    Ok(Expression::String(&s[1..s.len()-1]))
+impl<'a> TokenWalker<'a> {
+    pub fn new(tokens: &[SpannedToken]) -> TokenWalker {
+        TokenWalker {
+            tokens: tokens,
+            index: 0,
+        }
+    }
+
+    pub fn peek(&self) -> Option<&SpannedToken> {
+        self.tokens.get(self.index)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.index >= self.tokens.len()
+    }
+
+    pub fn back(&self) -> Option<TokenWalker<'a>> {
+        if self.index == 0 {
+            None
+        } else {
+            Some(TokenWalker {
+                tokens: self.tokens,
+                index: self.index - 1,
+            })
+        }
+    }
 }
 
-pub fn main(mut tokens: Tokens) -> Result<Vec<Statement>, Vec<Error>> {
+impl<'a> Iterator for TokenWalker<'a> {
+    type Item = &'a SpannedToken;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let token = self.tokens.get(self.index);
+        self.index += 1;
+        token
+    }
+}
+
+
+type YieldExpr<'a> = Result<(TokenWalker<'a>, Expression), Error>;
+type YieldStmt<'a> = Result<(TokenWalker<'a>, Statement), Error>;
+pub type YieldStmts = Result<Vec<Statement>, Vec<Error>>;
+
+pub fn parse(tokens: &[SpannedToken]) -> YieldStmts {
+    program(TokenWalker::new(tokens))
+}
+
+fn program(mut tokens: TokenWalker) -> YieldStmts {
     let mut stmts = vec!{};
     let mut errs = vec!{};
 
     loop {
-        match statement(tokens) {
-            Ok((left, stmt)) => {
+        match statement(tokens.clone()) {
+            Ok((rest, stmt)) => {
                 stmts.push(stmt);
-
-                if left.is_empty() {
-                    break;
-                }
-                tokens = left;
-
-                continue;
+                tokens = rest;
             },
-            Err(Error::Unmatched) => {},
+            Err(Error::Unmatched) => break,
             Err(f @ Error::Failure(_)) => {
                 errs.push(f);
-                
-                // do error recovery:
-                // ignore all tokens up to the next semicolon,
-                // then try making another statement
-                let start = tokens.get(0).unwrap();
-                loop {
-                    match tokens.get(0) {
-                        None => return Err(errs),
-                        Some(end @ (_, Token::Semicolon)) => {
-                            tokens = &tokens[1..];
-
-                            if statement(tokens).is_ok() {
-                                println!("skipped from {:?} to {:?}, next up is {:?}", start, end, tokens.get(0));
-                                break;
-                            }
-                        },
-                        Some(_) => {
-                            // skip this
-                            tokens = &tokens[1..];
-                        }
-                    }
-                }
+                error_recovery(&mut tokens);
             },
         }
     }
@@ -150,42 +160,86 @@ pub fn main(mut tokens: Tokens) -> Result<Vec<Statement>, Vec<Error>> {
     }
 }
 
-fn statement(tokens: Tokens) -> YieldStmt {
-    macro_rules! try_stmt {
-        ($fn:expr) => {
-            match $fn(tokens) {
-                Ok(o @ _) => return Ok(o),
-                Err(f @ Error::Failure(_)) => return Err(f),
-                Err(Error::Unmatched) => {},
-            }
+
+fn error_recovery(tokens: &mut TokenWalker) {
+    // ignore all tokens up to the next semicolon,
+    let start = tokens.peek().map(|x| (*x).clone());
+    loop {
+        match tokens.next() {
+            Some(end) if end.token == Token::Semicolon => {
+                println!("skipped from {} to {}",
+                    start.unwrap(),
+                    end,
+                );
+                break;
+            },
+            Some(_) => {},
+            None => break,
         }
     }
+}
 
+fn statement(tokens: TokenWalker) -> YieldStmt {
     if tokens.is_empty() {
         return Err(Error::Unmatched);
     }
 
-    try_stmt!(print);
+    match print(tokens.clone()) {
+        Err(Error::Unmatched) => {},
+        x @ (Ok(_) | Err(Error::Failure(_))) => return x,
+    }
 
-    Err(Error::Failure(format!("no valid stmt found starting at {:?}", tokens.get(0))))
+    match exprstmt(tokens.clone()) {
+        Err(Error::Unmatched) => {},
+        x @ (Ok(_) | Err(Error::Failure(_))) => return x,
+    }
+
+    Err(Error::Unmatched)
 }
 
-fn print(tokens: Tokens) -> YieldStmt {
-    match tokens.get(0) {
-        Some((span, Token::Print)) => {
-            match expression(&tokens[1..]) {
-                Ok((rest, expr)) => {
-                    match rest.get(0) {
-                        Some((_, Token::Semicolon)) => Ok((&rest[1..], Statement::Print(expr))),
-                        r @ (None | Some(_)) => Err(Error::Failure(format!(
-                            "[{:?}] expected semicolon after expression {:?} after print, but found {:?}", span, expr, r))),
-                    }
+macro_rules! expect_token {
+    ($span:expr, $tokens:expr, $token:path, $ok:expr) => {
+        match $tokens.next() {
+            Some(st) if st.token == $token => {
+                Ok(($tokens, $ok))
+            },
+            x @ (None | Some(_)) => {
+                Err(Error::Failure(format!(
+                    "[{:?}] expected {}, got {:?}",
+                    $span, stringify!($token), x
+                )))
+            },
+        }
+    }
+}
+
+fn print(mut tokens: TokenWalker) -> YieldStmt {
+    match tokens.next() {
+        Some(st) if st.token == Token::Print => {
+            match expression(tokens) {
+                Ok((mut rest, expr)) => {
+                    expect_token!(st.span, rest, Token::Semicolon, Statement::Print(expr))
                 },
-                Err(Error::Unmatched) => Err(Error::Failure(format!("[{:?}] expected expression after print", span))),
+                Err(Error::Unmatched) => {
+                    Err(Error::Failure(format!(
+                        "[{:?}] print expected expression",
+                        st.span
+                    )))
+                },
                 Err(f @ Error::Failure(_)) => Err(f),
             }
         },
         None | Some(_) => Err(Error::Unmatched),
+    }
+}
+
+fn exprstmt(tokens: TokenWalker) -> YieldStmt {
+    let span = tokens.peek().map(|x| x.span.clone());
+    match dbg!(expression(tokens)) {
+        Ok((mut rest, expr)) => {
+            expect_token!(span, rest, Token::Semicolon, Statement::Expression(expr))
+        },
+        Err(e) => Err(e),
     }
 }
 
@@ -194,43 +248,49 @@ macro_rules! repeat_las_binop {
         match $lower($tokens) {
             Ok((mut outer_rest, mut outer_expr)) => {
                 loop {
-                    match outer_rest.get(0) {
-                        Some((span, t @ ( $($map_from)|+ ))) => {
-                            let ex = match t {
-                                $($map_from => $map_to),+,
-                                _ => unreachable!(),
-                            };
-    
-                            match $lower(&outer_rest[1..]) {
+                    match outer_rest.next() {
+                        Some(st @ SpannedToken { token: $($map_from)|+, .. }) => {
+                            match $lower(outer_rest) {
                                 Ok((inner_rest, inner_expr)) => {
+                                    let ex = match st.token {
+                                        $($map_from => $map_to),+,
+                                        _ => unreachable!(),
+                                    };
                                     outer_expr = ex(Box::new(outer_expr), Box::new(inner_expr));
                                     outer_rest = inner_rest;
                                 },
-                                Err(Error::Unmatched) => return Err(Error::Failure(format!("[{:?}] in factor expected unary expression after {:?}", span, t))),
-                                Err(f @ Error::Failure(_)) => return Err(f),
+
+                                Err(Error::Unmatched)
+                                    => break Err(Error::Failure(format!(
+                                        "[{:?}] expected {} expression after {:?}",
+                                        st.span, stringify!($lower), st.token
+                                    ))),
+
+                                Err(f @ Error::Failure(_)) => break Err(f),
                             }
                         },
-                        None | Some(_) => return Ok((outer_rest, outer_expr)),
+                        None | Some(_) => break Ok((outer_rest.back().unwrap(), outer_expr)),
                     }
                 }
             },
-            Err(f @ Error::Failure(_)) => return Err(f),
-            Err(u @ Error::Unmatched) => Err(u),
+            Err(e) => Err(e),
         }
     }
 }
 
-fn expression(tokens: Tokens) -> YieldExpr {
+fn expression(tokens: TokenWalker) -> YieldExpr {
     equality(tokens)
 }
 
-fn equality(tokens: Tokens) -> YieldExpr {
+fn equality(tokens: TokenWalker) -> YieldExpr {
     // equality := comparison ( ( BangEqual | EqualEqual ) comparison )* ;
-
-    repeat_las_binop!(tokens, comparison, { Token::BangEqual => Expression::NotEqual, Token::EqualEqual => Expression::Equal })
+    repeat_las_binop!(tokens, comparison, {
+        Token::BangEqual => Expression::NotEqual,
+        Token::EqualEqual => Expression::Equal,
+    })
 }
 
-fn comparison(tokens: Tokens) -> YieldExpr {
+fn comparison(tokens: TokenWalker) -> YieldExpr {
     // comparison := term ( ( Greater | GreaterEqual | Less | LessEqual ) term )* ;
     repeat_las_binop!(tokens, term, {
         Token::Greater => Expression::Greater,
@@ -240,56 +300,77 @@ fn comparison(tokens: Tokens) -> YieldExpr {
     })
 }
 
-fn term(tokens: Tokens) -> YieldExpr {
+fn term(tokens: TokenWalker) -> YieldExpr {
     // term := factor ( ( Minus | Plus ) factor )* ;
     repeat_las_binop!(tokens, factor, { Token::Minus => Expression::Subtract, Token::Plus => Expression::Add })
 }
 
-fn factor(tokens: Tokens) -> YieldExpr {
+fn factor(tokens: TokenWalker) -> YieldExpr {
     // factor := unary ( ( Slash | Star ) unary )* ;
     repeat_las_binop!(tokens, unary, { Token::Slash => Expression::Divide, Token::Star => Expression::Multiply })
 }
 
-fn unary(tokens: Tokens) -> YieldExpr {
+fn unary(mut tokens: TokenWalker) -> YieldExpr {
     // unary := ( Bang | Minus ) unary | primary ;
-    match tokens.get(0) {
-        Some((span, r @ (Token::Bang | Token::Minus))) => {
-            let ex = match r {
+    match tokens.next() {
+        Some(SpannedToken {
+            token: t @ (Token::Bang | Token::Minus),
+            span
+        }) => {
+            let ex = match t {
                 Token::Bang => Expression::Negate,
                 Token::Minus => Expression::Negative,
                 _ => unreachable!(),
             };
 
-            match unary(&tokens[1..]) {
+            match unary(tokens) {
                 Ok((rest, expr)) => Ok((rest, ex(Box::new(expr)))),
-                _ => Err(Error::Failure(format!("[{:?}] expected unary expression after {:?}", span, r))),
+                Err(Error::Unmatched) => Err(Error::Failure(format!(
+                    "[{:?}] expected unary expression after {:?}",
+                    span, t
+                ))),
+                Err(f @ Error::Failure(_)) => Err(f),
             }
         },
-        Some(_) => primary(tokens),
+        Some(_) => primary(tokens.back().unwrap()),
         None => Err(Error::Unmatched),
     }
 }
 
-fn primary(tokens: Tokens) -> YieldExpr {
+fn primary(mut tokens: TokenWalker) -> YieldExpr {
     // primary := Number | String | True | False | Nil | LeftParen expression RightParen
-    match tokens.get(0) {
-        Some((_, Token::Number(s)    )) => parse_num(s).map(|x| (&tokens[1..], x)),
-        Some((_, Token::String(s)    )) => parse_str(s).map(|x| (&tokens[1..], x)),
-        Some((_, Token::Identifier(s))) => Ok((&tokens[1..], Expression::Identifier(s))),
-        Some((_, Token::True         )) => Ok((&tokens[1..], Expression::True)),
-        Some((_, Token::False        )) => Ok((&tokens[1..], Expression::False)),
-        Some((_, Token::Nil          )) => Ok((&tokens[1..], Expression::Nil)),
+    use Token::{
+        Number, String, Identifier,
+        True, False, Nil,
+        LeftParen, RightParen,
+    };
+    use SpannedToken as St;
+    match tokens.next() {
+        Some(St { token: Number(n), .. })
+            => Ok((tokens, Expression::Number(*n))),
+        Some(St { token: String(s), .. })
+            => Ok((tokens, Expression::String(s.clone()))),
+        Some(St { token: Identifier(i), .. })
+            => Ok((tokens, Expression::Identifier(i.clone()))),
+        
+        Some(st) if st.token == True
+            => Ok((tokens, Expression::True)),
+        Some(st) if st.token == False
+            => Ok((tokens, Expression::False)),
+        Some(st) if st.token == Nil
+            => Ok((tokens, Expression::Nil)),
 
-        Some((span, Token::LeftParen)) => {
-            match expression(&tokens[1..]) {
-                Ok((rest, expr)) => {
-                    match rest.get(0) {
-                        Some((_, Token::RightParen)) => Ok((&rest[1..], expr)),
-                        _ => Err(Error::Failure(format!("[{:?}] found ( followed by expression {:?} but without )", span, expr)))
-                    }
+        Some(st) if st.token == LeftParen => {
+            match expression(tokens) {
+                Ok((mut rest, expr)) => {
+                    expect_token!(st.span, rest, RightParen, expr)
                 },
-                Err(Error::Unmatched) => Err(Error::Failure(format!("[{:?}] found ( not followed by expression", span))),
-                f @ Err(Error::Failure(_)) => f,
+                Err(Error::Unmatched)
+                    => Err(Error::Failure(format!(
+                        "[{:?}] found ( not followed by expression",
+                        st.span
+                    ))),
+                Err(f @ Error::Failure(_)) => Err(f),
             }
         }
 
