@@ -1,16 +1,27 @@
 use std::collections::HashMap;
 use crate::eval::Value;
 
-pub struct Scope<'a> {
-    pub vars: HashMap<&'a str, Value>,
+pub struct Scope {
+    pub vars: HashMap<String, Value>,
 }
 
-impl<'a> Scope<'a> {
-    pub fn new() -> Scope<'a> {
+impl Scope {
+    pub fn new() -> Scope {
         Scope { vars: HashMap::new() }
     }
 
-    pub fn get(&self, _key: &str) -> Value {
-        unimplemented!()
+    pub fn get(&self, key: &str) -> Value {
+        self.vars.get(key)
+            .map(|x| x.clone())
+            .unwrap_or(Value::Nil)
+    }
+
+    pub fn set(&mut self, key: &str, val: Value) {
+        // silently overwrites
+        self.vars.insert(key.to_string(), val);
+    }
+
+    pub fn has(&self, key: &str) -> bool {
+        self.vars.contains_key(key)
     }
 }

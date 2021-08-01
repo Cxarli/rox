@@ -1,30 +1,29 @@
-use crate::parser::{Expression, Statement};
+use crate::parser::{Expression, Statement, Declaration};
 use crate::eval::{Scope, Value};
 
 
-pub trait Eval<'a> {
-    fn eval(&self, scope: &mut Scope<'a>) -> Value;
+pub trait Eval {
+    fn eval(&self, scope: &mut Scope) -> Value;
 }
 
-impl<'a> Eval<'a> for Expression {
-    fn eval(&self, scope: &mut Scope<'a>) -> Value {
+impl Eval for Expression {
+    fn eval(&self, scope: &mut Scope) -> Value {
         use Expression::*;
         match self {
             Number(n) => Value::Number(*n),
             String(s) => Value::String(s.to_string()),
+            Identifier(i) => scope.get(i),
             True => Value::Boolean(true),
             False => Value::Boolean(false),
             Nil => Value::Nil,
 
-            Identifier(i) => scope.get(i),
+            Negative(a) => - a.eval(scope),
+            Negate(a) => ! a.eval(scope),
 
-            Negative(a) => - &a.eval(scope),
-            Negate(a) => ! &a.eval(scope),
-
-            Add(a, b) => &a.eval(scope) + &b.eval(scope),
-            Subtract(a, b) => &a.eval(scope) - &b.eval(scope),
-            Multiply(a, b) => &a.eval(scope) * &b.eval(scope),
-            Divide(a, b) => &a.eval(scope) / &b.eval(scope),
+            Add(a, b) => a.eval(scope) + b.eval(scope),
+            Subtract(a, b) => a.eval(scope) - b.eval(scope),
+            Multiply(a, b) => a.eval(scope) * b.eval(scope),
+            Divide(a, b) => a.eval(scope) / b.eval(scope),
 
             Equal(a, b) => Value::Boolean(a.eval(scope) == b.eval(scope)),
             NotEqual(a, b) => Value::Boolean(a.eval(scope) != b.eval(scope)),
@@ -36,18 +35,56 @@ impl<'a> Eval<'a> for Expression {
     }
 }
 
-pub trait Run<'a> {
-    fn run(&self, scope: &mut Scope<'a>);
+pub trait Run {
+    fn run(&self, scope: &mut Scope);
 }
 
-impl<'a> Run<'a> for Statement {
-    fn run(&self, scope: &mut Scope<'a>) {
+impl Run for Statement {
+    fn run(&self, scope: &mut Scope) {
         use Statement::*;
         match self {
             Print(e) => println!("{}", e.eval(scope)),
 
-            // ignore result
-            Expression(e) => { e.eval(scope); },
+            Expression(e) => {
+                let v = e.eval(scope);
+
+                if scope.get("__verbose").into() {
+                    println!("#> {}", v);
+                }
+            },
+
+            Assignment(i, e) => {
+                // assert!(scope.has(i));
+
+                let v = e.eval(scope);
+
+                if scope.get("__verbose").into() {
+                    println!("#= {}", v);
+                }
+
+                scope.set(i, v);
+            }
+        }
+    }
+}
+
+impl Run for Declaration {
+    fn run(&self, scope: &mut Scope) {
+        use Declaration::*;
+        match self {
+            Variable(i, e) => {
+                assert!(!scope.has(i));
+
+                let v = e.eval(scope);
+
+                if scope.get("__verbose").into() {
+                    println!("#= {}", v);
+                }
+
+                scope.set(i, v);
+            },
+
+            Statement(s) => s.run(scope),
         }
     }
 }

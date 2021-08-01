@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Number(f64),
     Boolean(bool),
@@ -6,7 +6,38 @@ pub enum Value {
     Nil,
 }
 
-impl<'a> std::fmt::Display for Value {
+impl Into<f64> for Value {
+    fn into(self) -> f64 {
+        use Value::*;
+        match self {
+            Number(n) => n,
+            _ => panic!("can't convert {:?} to number", self),
+        }
+    }
+}
+
+impl Into<bool> for Value {
+    fn into(self) -> bool {
+        use Value::*;
+        match self {
+            Boolean(n) => n,
+            Nil => false,
+            _ => true,
+        }
+    }
+}
+
+impl Into<String> for Value {
+    fn into(self) -> String {
+        use Value::*;
+        match self {
+            String(s) => s,
+            _ => panic!("can't convert {:?} to string", self),
+        }
+    }
+}
+
+impl std::fmt::Display for Value {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         use Value::*;
         match self {
@@ -20,9 +51,9 @@ impl<'a> std::fmt::Display for Value {
 
 macro_rules! impl_binop {
     ($tr:path, $name:ident, $op:tt) => {
-        impl<'a> $tr for &Value {
+        impl $tr for Value {
             type Output = Value;
-            fn $name(self, rhs: &Value) -> Self::Output {
+            fn $name(self, rhs: Value) -> Self::Output {
                 use Value::Number;
                 match (self, rhs) {
                     (Number(a), Number(b)) => Number(a $op b),
@@ -33,13 +64,13 @@ macro_rules! impl_binop {
     }
 }
 
-impl_binop!(std::ops::Sub<&Value>, sub, -);
-impl_binop!(std::ops::Div<&Value>, div, /);
-impl_binop!(std::ops::Mul<&Value>, mul, *);
+impl_binop!(std::ops::Sub<Value>, sub, -);
+impl_binop!(std::ops::Div<Value>, div, /);
+impl_binop!(std::ops::Mul<Value>, mul, *);
 
-impl<'a> std::ops::Add<&Value> for &Value {
+impl std::ops::Add<Value> for Value {
     type Output = Value;
-    fn add(self, rhs: &Value) -> Self::Output {
+    fn add(self, rhs: Value) -> Self::Output {
         use Value::*;
         match (self, rhs) {
             (Number(a), Number(b)) => Number(a + b),
@@ -49,7 +80,7 @@ impl<'a> std::ops::Add<&Value> for &Value {
     }
 }
 
-impl<'a> std::ops::Neg for &Value {
+impl std::ops::Neg for Value {
     type Output = Value;
     fn neg(self) -> Self::Output {
         use Value::Number;
@@ -60,19 +91,15 @@ impl<'a> std::ops::Neg for &Value {
     }
 }
 
-impl<'a> std::ops::Not for &Value {
+impl std::ops::Not for Value {
     type Output = Value;
     fn not(self) -> Self::Output {
-        use Value::*;
-        match self {
-            // false and nil are falsey, everything else is truthy
-            Nil | Boolean(false) => Boolean(true),
-            _ => Boolean(false),
-        }
+        let b: bool = self.into();
+        Value::Boolean(!b)
     }
 }
 
-impl<'a> std::cmp::PartialEq<Value> for Value {
+impl std::cmp::PartialEq<Value> for Value {
     fn eq(&self, rhs: &Value) -> bool {
         use Value::*;
         match (self, rhs) {
@@ -86,7 +113,7 @@ impl<'a> std::cmp::PartialEq<Value> for Value {
     }
 }
 
-impl<'a> std::cmp::PartialOrd<Value> for Value {
+impl std::cmp::PartialOrd<Value> for Value {
     fn partial_cmp(&self, rhs: &Value) -> Option<std::cmp::Ordering> {
         use Value::*;
         match (self, rhs) {

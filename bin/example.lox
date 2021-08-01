@@ -1,0 +1,14 @@
+print "hello, world!";
+
+var a = 10;
+var b = 20;
+var c;
+c = 5 + b / a;
+print c == 7;
+0 / 0;
+
+__verbose = false;
+print "spooky!";
+20 + 22;
+__verbose = true;
+print "welcome back";

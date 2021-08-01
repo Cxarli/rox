@@ -42,15 +42,17 @@ fn main() {
     */
 
     let ast = rox::parser::parse(&tokens);
-    // println!("{:?}", ast);
+    // println!("{:#?}", ast);
 
     if let Ok(ast) = ast {
-        use eval::Run;
+        use eval::{Run, Value};
         let mut scope = eval::Scope::new();
 
-        for stmt in ast {
-            println!("## {}", stmt);
-            stmt.run(&mut scope);
+        for decl in ast {
+            if scope.get("__verbose").into() {
+                println!("#! {}", decl);
+            }
+            decl.run(&mut scope);
         }
     } else {
         for err in ast.unwrap_err() {

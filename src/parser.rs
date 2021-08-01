@@ -1,12 +1,21 @@
 use super::lexer::{Token, SpannedToken};
 
-pub type Expr = Box<Expression>;
+#[derive(Debug)]
+pub enum Declaration {
+    Variable(String, Expression),
+
+    Statement(Statement),
+}
 
 #[derive(Debug)]
 pub enum Statement {
     Print(Expression),
+    Assignment(String, Expression),
+
     Expression(Expression),
 }
+
+pub type Expr = Box<Expression>;
 
 #[derive(Debug)]
 pub enum Expression {
@@ -37,11 +46,24 @@ pub enum Expression {
     GreaterEqual(Expr, Expr),
 }
 
+impl std::fmt::Display for Declaration {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use Declaration::*;
+        match self {
+            Variable(s, e) => write!(fmt, "var {} = {};", s, e),
+
+            Statement(s) => s.fmt(fmt),
+        }
+    }
+}
+
 impl std::fmt::Display for Statement {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         use Statement::*;
         match self {
             Print(e) => write!(fmt, "print {};", e),
+            Assignment(s, e) => write!(fmt, "{} = {};", s, e),
+
             Expression(e) => write!(fmt, "{};", e),
         }
     }
@@ -82,6 +104,7 @@ pub enum Error {
     Failure(String),
 }
 
+
 #[derive(Clone, Debug)]
 pub struct TokenWalker<'a> {
     pub tokens: &'a [SpannedToken],
@@ -89,19 +112,37 @@ pub struct TokenWalker<'a> {
 }
 
 impl<'a> TokenWalker<'a> {
-    pub fn new(tokens: &[SpannedToken]) -> TokenWalker {
+    pub fn new(tokens: &'a [SpannedToken]) -> TokenWalker {
         TokenWalker {
             tokens: tokens,
             index: 0,
         }
     }
 
-    pub fn peek(&self) -> Option<&SpannedToken> {
+    fn next(&mut self) -> Option<&'a SpannedToken> {
+        let token = self.tokens.get(self.index);
+        self.index += 1;
+        token
+    }
+
+    pub fn peek(&self) -> Option<&'a SpannedToken> {
         self.tokens.get(self.index)
+    }
+
+    pub fn skip(&mut self) {
+        self.index += 1;
     }
 
     pub fn is_empty(&self) -> bool {
         self.index >= self.tokens.len()
+    }
+
+    pub fn len(&self) -> usize {
+        if self.index >= self.tokens.len() {
+            0
+        } else {
+            self.tokens.len() - self.index
+        }
     }
 
     pub fn back(&self) -> Option<TokenWalker<'a>> {
@@ -116,33 +157,91 @@ impl<'a> TokenWalker<'a> {
     }
 }
 
-impl<'a> Iterator for TokenWalker<'a> {
-    type Item = &'a SpannedToken;
+// type YieldToken<'a> = Result<(TokenWalker<'a>, &'a SpannedToken), Error>;
+type YieldExpr<'a> = Result<(TokenWalker<'a>, Expression), Error>;
+type YieldStmt<'a> = Result<(TokenWalker<'a>, Statement), Error>;
+type YieldDecl<'a> = Result<(TokenWalker<'a>, Declaration), Error>;
+pub type YieldDecls = Result<Vec<Declaration>, Vec<Error>>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let token = self.tokens.get(self.index);
-        self.index += 1;
-        token
+
+macro_rules! attempt {
+    ($x:expr) => {
+        match $x {
+            Err(Error::Unmatched) => {},
+            x => return x,
+        }
     }
 }
 
 
-type YieldExpr<'a> = Result<(TokenWalker<'a>, Expression), Error>;
-type YieldStmt<'a> = Result<(TokenWalker<'a>, Statement), Error>;
-pub type YieldStmts = Result<Vec<Statement>, Vec<Error>>;
+macro_rules! require_token {
+    ($st:expr, $tokens:expr, $token:pat) => {{
+        let st: &SpannedToken = $st;
+        let mut tokens: TokenWalker = $tokens;
 
-pub fn parse(tokens: &[SpannedToken]) -> YieldStmts {
+        match tokens.next() {
+            Some(st @ SpannedToken { token: $token, .. }) => {
+                Ok((tokens, st))
+            },
+            x @ (None | Some(_)) => {
+                Err(Error::Failure(format!(
+                    "[{}] expected {}, got {:?}",
+                    st, stringify!($token), x
+                )))
+            },
+        }
+    }}
+}
+
+macro_rules! optional_token {
+    ($tokens:expr, $token:pat) => {{
+        let mut tokens: TokenWalker = $tokens;        
+
+        match tokens.peek() {
+            Some(st @ SpannedToken { token: $token, .. }) => {
+                tokens.skip();
+                Ok((tokens, st))
+            },
+            _ => Err(tokens),
+        }
+    }}
+}
+
+
+fn require<T>(st: &SpannedToken, res: Result<T, Error>, expected: &str) -> Result<T, Error> {
+    match res {
+        Ok(x) => Ok(x),
+        Err(f @ Error::Failure(_)) => Err(f),
+        Err(Error::Unmatched) => Err(Error::Failure(format!(
+            "[{}] expected {}", st, expected
+        ))),
+    }
+}
+
+macro_rules! try_match_token {
+    ($token:pat, $tokens:expr) => {{
+        let mut tokens = $tokens;
+        match tokens.next() {
+            Some(st @ SpannedToken { token: $token, .. }) => Ok((tokens, st)),
+            None | Some(_) => Err(Error::Unmatched),
+        }
+    }}
+}
+
+
+
+pub fn parse(tokens: &[SpannedToken]) -> YieldDecls {
     program(TokenWalker::new(tokens))
 }
 
-fn program(mut tokens: TokenWalker) -> YieldStmts {
-    let mut stmts = vec!{};
+fn program(mut tokens: TokenWalker) -> YieldDecls {
+    let mut decls = vec!{};
     let mut errs = vec!{};
 
     loop {
-        match statement(tokens.clone()) {
-            Ok((rest, stmt)) => {
-                stmts.push(stmt);
+        match declaration(tokens.clone()) {
+            Ok((rest, decl)) => {
+                decls.push(decl);
                 tokens = rest;
             },
             Err(Error::Unmatched) => break,
@@ -154,7 +253,7 @@ fn program(mut tokens: TokenWalker) -> YieldStmts {
     }
 
     if errs.is_empty() {
-        Ok(stmts)
+        Ok(decls)
     } else {
         Err(errs)
     }
@@ -179,103 +278,115 @@ fn error_recovery(tokens: &mut TokenWalker) {
     }
 }
 
-fn statement(tokens: TokenWalker) -> YieldStmt {
-    if tokens.is_empty() {
-        return Err(Error::Unmatched);
-    }
-
-    match print(tokens.clone()) {
-        Err(Error::Unmatched) => {},
-        x @ (Ok(_) | Err(Error::Failure(_))) => return x,
-    }
-
-    match exprstmt(tokens.clone()) {
-        Err(Error::Unmatched) => {},
-        x @ (Ok(_) | Err(Error::Failure(_))) => return x,
-    }
+fn declaration(tokens: TokenWalker) -> YieldDecl {
+    attempt!(declare(tokens.clone()));
+    attempt!(stmtdecl(tokens.clone()));
 
     Err(Error::Unmatched)
 }
 
-macro_rules! expect_token {
-    ($span:expr, $tokens:expr, $token:path, $ok:expr) => {
-        match $tokens.next() {
-            Some(st) if st.token == $token => {
-                Ok(($tokens, $ok))
-            },
-            x @ (None | Some(_)) => {
-                Err(Error::Failure(format!(
-                    "[{:?}] expected {}, got {:?}",
-                    $span, stringify!($token), x
-                )))
-            },
-        }
-    }
+fn declare(tokens: TokenWalker) -> YieldDecl {
+    let (rest, st) = try_match_token!(Token::Var, tokens)?;
+    let (rest, id) = try_match_token!(Token::Identifier(_), rest)?;
+
+    let (rest, expr) = match optional_token!(rest, Token::Equal) {
+        Ok((rest, st)) => {
+            require(st, expression(rest), "expression")?
+        },
+        Err(rest) => (rest, Expression::Nil)
+    };
+
+    let id = match &id.token {
+        Token::Identifier(id) => id.to_string(),
+        _ => unreachable!(),
+    };
+    let decl = Declaration::Variable(id, expr);
+    let (rest, _) = require_token!(st, rest, Token::Semicolon)?;
+    Ok((rest, decl))
 }
 
-fn print(mut tokens: TokenWalker) -> YieldStmt {
-    match tokens.next() {
-        Some(st) if st.token == Token::Print => {
-            match expression(tokens) {
-                Ok((mut rest, expr)) => {
-                    expect_token!(st.span, rest, Token::Semicolon, Statement::Print(expr))
-                },
-                Err(Error::Unmatched) => {
-                    Err(Error::Failure(format!(
-                        "[{:?}] print expected expression",
-                        st.span
-                    )))
-                },
-                Err(f @ Error::Failure(_)) => Err(f),
-            }
-        },
-        None | Some(_) => Err(Error::Unmatched),
-    }
+fn stmtdecl(tokens: TokenWalker) -> YieldDecl {
+    let (rest, stmt) = statement(tokens)?;
+    let decl = Declaration::Statement(stmt);
+    Ok((rest, decl))
+}
+
+fn statement(tokens: TokenWalker) -> YieldStmt {
+    attempt!(print(tokens.clone()));
+    attempt!(assign(tokens.clone()));
+    attempt!(exprstmt(tokens.clone()));
+
+    Err(Error::Unmatched)
+}
+
+
+fn print(tokens: TokenWalker) -> YieldStmt {
+    let (rest, st) = try_match_token!(Token::Print, tokens)?;
+    let (rest, expr) = require(st, expression(rest), "expression")?;
+    let stmt = Statement::Print(expr);
+    let (rest, _) = require_token!(st, rest, Token::Semicolon)?;
+    Ok((rest, stmt))
+}
+
+fn assign(tokens: TokenWalker) -> YieldStmt {
+    let (rest, id) = try_match_token!(Token::Identifier(_), tokens)?;
+    let (rest, st) = try_match_token!(Token::Equal, rest)?;
+    let (rest, expr) = require(st, expression(rest), "expression")?;
+
+    let id = match &id.token {
+        Token::Identifier(id) => id.to_string(),
+        _ => unreachable!(),
+    };
+    let stmt = Statement::Assignment(id, expr);
+    let (rest, _) = require_token!(st, rest, Token::Semicolon)?;
+    Ok((rest, stmt))
 }
 
 fn exprstmt(tokens: TokenWalker) -> YieldStmt {
-    let span = tokens.peek().map(|x| x.span.clone());
-    match dbg!(expression(tokens)) {
-        Ok((mut rest, expr)) => {
-            expect_token!(span, rest, Token::Semicolon, Statement::Expression(expr))
-        },
-        Err(e) => Err(e),
-    }
+    let st = tokens.peek().map(|x| (*x).clone());
+    let (rest, expr) = expression(tokens)?;
+    let stmt = Statement::Expression(expr);
+    let (rest, _) = require_token!(&st.unwrap(), rest, Token::Semicolon)?;
+    Ok((rest, stmt))
 }
 
 macro_rules! repeat_las_binop {
-    ($tokens: expr, $lower:expr, { $($map_from:path => $map_to:path),+ $(,)? }) => {
-        match $lower($tokens) {
-            Ok((mut outer_rest, mut outer_expr)) => {
-                loop {
-                    match outer_rest.next() {
-                        Some(st @ SpannedToken { token: $($map_from)|+, .. }) => {
-                            match $lower(outer_rest) {
-                                Ok((inner_rest, inner_expr)) => {
-                                    let ex = match st.token {
-                                        $($map_from => $map_to),+,
-                                        _ => unreachable!(),
-                                    };
-                                    outer_expr = ex(Box::new(outer_expr), Box::new(inner_expr));
-                                    outer_rest = inner_rest;
-                                },
+    ($tokens: expr, $lower:expr, { $($map_from:pat => $map_to:path),+ $(,)? }) => {{
+        let (mut outer_rest, mut outer_expr) = $lower($tokens)?;
+        
+        while let Some(st @ SpannedToken { token: $($map_from)|+, .. }) = outer_rest.next() {
+            let (inner_rest, inner_expr) = require(st, $lower(outer_rest), stringify!($lower))?;
 
-                                Err(Error::Unmatched)
-                                    => break Err(Error::Failure(format!(
-                                        "[{:?}] expected {} expression after {:?}",
-                                        st.span, stringify!($lower), st.token
-                                    ))),
+            let ex = match st.token {
+                $($map_from => $map_to),+,
+                _ => unreachable!(),
+            };
 
-                                Err(f @ Error::Failure(_)) => break Err(f),
-                            }
-                        },
-                        None | Some(_) => break Ok((outer_rest.back().unwrap(), outer_expr)),
-                    }
-                }
-            },
-            Err(e) => Err(e),
+            outer_rest = inner_rest;
+            outer_expr = ex(Box::new(outer_expr), Box::new(inner_expr));
         }
-    }
+
+        Ok((outer_rest.back().unwrap(), outer_expr))
+    }}
+}
+
+macro_rules! repeat_ras_monop {
+    ($self: expr, $tokens: expr, $lower:expr, { $($map_from:pat => $map_to:path),+ $(,)? }) => {{
+        match $tokens.next() {
+            Some(st @ SpannedToken { token: $($map_from)|+, .. }) => {
+                let (rest, expr) = require(st, $self($tokens), stringify!($self))?;
+
+                let ex = match st.token {
+                    $($map_from => $map_to),+,
+                    _ => unreachable!(),
+                };
+
+                Ok((rest, ex(Box::new(expr))))
+            },
+            Some(_) => $lower($tokens.back().unwrap()),
+            None => Err(Error::Unmatched),
+        }
+    }}
 }
 
 fn expression(tokens: TokenWalker) -> YieldExpr {
@@ -312,29 +423,7 @@ fn factor(tokens: TokenWalker) -> YieldExpr {
 
 fn unary(mut tokens: TokenWalker) -> YieldExpr {
     // unary := ( Bang | Minus ) unary | primary ;
-    match tokens.next() {
-        Some(SpannedToken {
-            token: t @ (Token::Bang | Token::Minus),
-            span
-        }) => {
-            let ex = match t {
-                Token::Bang => Expression::Negate,
-                Token::Minus => Expression::Negative,
-                _ => unreachable!(),
-            };
-
-            match unary(tokens) {
-                Ok((rest, expr)) => Ok((rest, ex(Box::new(expr)))),
-                Err(Error::Unmatched) => Err(Error::Failure(format!(
-                    "[{:?}] expected unary expression after {:?}",
-                    span, t
-                ))),
-                Err(f @ Error::Failure(_)) => Err(f),
-            }
-        },
-        Some(_) => primary(tokens.back().unwrap()),
-        None => Err(Error::Unmatched),
-    }
+    repeat_ras_monop!(unary, tokens, primary, { Token::Bang => Expression::Negate, Token::Minus => Expression::Negative })
 }
 
 fn primary(mut tokens: TokenWalker) -> YieldExpr {
@@ -361,17 +450,9 @@ fn primary(mut tokens: TokenWalker) -> YieldExpr {
             => Ok((tokens, Expression::Nil)),
 
         Some(st) if st.token == LeftParen => {
-            match expression(tokens) {
-                Ok((mut rest, expr)) => {
-                    expect_token!(st.span, rest, RightParen, expr)
-                },
-                Err(Error::Unmatched)
-                    => Err(Error::Failure(format!(
-                        "[{:?}] found ( not followed by expression",
-                        st.span
-                    ))),
-                Err(f @ Error::Failure(_)) => Err(f),
-            }
+            let (rest, expr) = require(st, expression(tokens), "expression")?;
+            let (rest, _) = require_token!(st, rest, RightParen)?;
+            Ok((rest, expr))
         }
 
         Some(_) | None => Err(Error::Unmatched),
