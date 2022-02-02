@@ -1,19 +1,14 @@
-use std::collections::HashMap;
 use crate::eval::Value;
+use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct Scope {
     pub vars: HashMap<String, Value>,
 }
 
 impl Scope {
-    pub fn new() -> Scope {
-        Scope { vars: HashMap::new() }
-    }
-
     pub fn get(&self, key: &str) -> Value {
-        self.vars.get(key)
-            .map(|x| x.clone())
-            .unwrap_or(Value::Nil)
+        self.vars.get(key).cloned().unwrap_or(Value::Nil)
     }
 
     pub fn set(&mut self, key: &str, val: Value) {

@@ -1,6 +1,5 @@
-use crate::parser::{Expression, Statement, Declaration};
 use crate::eval::{Scope, Value};
-
+use crate::parser::{Declaration, Expression, Statement};
 
 pub trait Eval {
     fn eval(&self, scope: &mut Scope) -> Value;
@@ -17,8 +16,8 @@ impl Eval for Expression {
             False => Value::Boolean(false),
             Nil => Value::Nil,
 
-            Negative(a) => - a.eval(scope),
-            Negate(a) => ! a.eval(scope),
+            Negative(a) => -a.eval(scope),
+            Negate(a) => !a.eval(scope),
 
             Add(a, b) => a.eval(scope) + b.eval(scope),
             Subtract(a, b) => a.eval(scope) - b.eval(scope),
@@ -51,7 +50,7 @@ impl Run for Statement {
                 if scope.get("__verbose").into() {
                     println!("#> {}", v);
                 }
-            },
+            }
 
             Assignment(i, e) => {
                 // assert!(scope.has(i));
@@ -82,7 +81,7 @@ impl Run for Declaration {
                 }
 
                 scope.set(i, v);
-            },
+            }
 
             Statement(s) => s.run(scope),
         }

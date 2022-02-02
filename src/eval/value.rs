@@ -6,20 +6,20 @@ pub enum Value {
     Nil,
 }
 
-impl Into<f64> for Value {
-    fn into(self) -> f64 {
+impl From<Value> for f64 {
+    fn from(val: Value) -> f64 {
         use Value::*;
-        match self {
+        match val {
             Number(n) => n,
-            _ => panic!("can't convert {:?} to number", self),
+            _ => panic!("can't convert {:?} to number", val),
         }
     }
 }
 
-impl Into<bool> for Value {
-    fn into(self) -> bool {
+impl From<Value> for bool {
+    fn from(val: Value) -> bool {
         use Value::*;
-        match self {
+        match val {
             Boolean(n) => n,
             Nil => false,
             _ => true,
@@ -27,12 +27,12 @@ impl Into<bool> for Value {
     }
 }
 
-impl Into<String> for Value {
-    fn into(self) -> String {
+impl From<Value> for String {
+    fn from(val: Value) -> String {
         use Value::*;
-        match self {
+        match val {
             String(s) => s,
-            _ => panic!("can't convert {:?} to string", self),
+            _ => panic!("can't convert {:?} to string", val),
         }
     }
 }
@@ -108,7 +108,9 @@ impl std::cmp::PartialEq<Value> for Value {
             (String(a), String(b)) => a == b,
             (Nil, Nil) => true,
 
-            (Number(_) | Boolean(_) | String(_) | Nil, _) => panic!("tried to compare inequal types"),
+            (Number(_) | Boolean(_) | String(_) | Nil, _) => {
+                panic!("tried to compare inequal types")
+            }
         }
     }
 }

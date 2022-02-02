@@ -153,15 +153,14 @@ impl std::fmt::Display for SpannedToken {
     }
 }
 
-
 pub fn lex(source: &str) -> Vec<SpannedToken> {
     let mut lexer = Token::lexer(source);
-    let mut tokens = vec!{};
+    let mut tokens = vec![];
 
     while let Some(token) = lexer.next() {
         tokens.push(SpannedToken {
             span: lexer.span(),
-            token
+            token,
         });
     }
 
